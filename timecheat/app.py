@@ -155,7 +155,8 @@ class AppState:
     def token_valid(self) -> bool:
         return bool(self.graph_token) and (self.graph_expires is None or self.graph_expires > datetime.now())
 
-    def log_out(self) -> None:
+    def reset(self) -> None:
+        """Forget everything of the previous login (kept: mode, settings, working calendar)."""
         fresh = AppState(demo=self.demo, settings=self.settings, work_calendar=self.work_calendar)
         self.__dict__.update(fresh.__dict__)
 
@@ -324,7 +325,7 @@ def login_page() -> None:
             if remember.value and typed and not STATE.demo:
                 if not await run.io_bound(cfg.save_secret, server_url, account, typed):
                     ui.notify("Could not save the secret in the keychain.", type="warning")
-            STATE.log_out()
+            STATE.reset()
             STATE.backend = backend
             STATE.cache = IssueCache(cfg.home_dir(), "demo" if STATE.demo else server_url)
             ui.navigate.to("/")
@@ -410,7 +411,6 @@ class MainPage:
             ui.button(icon="settings", on_click=self._settings_dialog).props("flat round dense color=white").tooltip(
                 "Settings"
             )
-            ui.button(icon="logout", on_click=self._log_out).props("flat round dense color=white").tooltip("Log out")
             ui.button(icon="power_settings_new", on_click=self._quit).props(
                 "flat round dense color=white"
             ).tooltip("Quit TimeCheat")
@@ -507,6 +507,9 @@ class MainPage:
             except Exception as error:  # noqa: BLE001
                 notify_error(error)
                 assigned = []
+            warning = getattr(s.backend, "projects_warning", None)
+            if warning:
+                ui.notify(warning, type="warning", multi_line=True, timeout=10000, close_button="OK")
             for issue in assigned:
                 s.issues[issue.key] = issue
             s.assigned_keys = [i.key for i in assigned]
@@ -1598,21 +1601,6 @@ class MainPage:
         dialog.delete()
         if uploaded:
             await self._reload_month()
-
-    async def _log_out(self) -> None:
-        pending = len(self.s.timesheet.changes())
-        if pending:
-            with self.root, ui.dialog() as dialog, ui.card():
-                ui.label(f"You have {pending} pending changes that will be lost. Log out anyway?")
-                with ui.row().classes("w-full justify-end"):
-                    ui.button("Stay", on_click=lambda: dialog.submit(False)).props("flat")
-                    ui.button("Log out", color="negative", on_click=lambda: dialog.submit(True))
-            confirmed = await dialog
-            dialog.delete()
-            if not confirmed:
-                return
-        self.s.log_out()
-        ui.navigate.to("/login")
 
     async def _quit(self) -> None:
         await quit_app(self.root, len(self.s.timesheet.changes()))

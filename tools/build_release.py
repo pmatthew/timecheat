@@ -1,7 +1,6 @@
 """Build the zip that users download: ``python tools/build_release.py [--team]``.
 
-The zip holds one ``TimeCheat-<version>/`` folder with the app, ``README.md``, ``LICENSE``
-and the ``start.bat`` / ``start.command`` launchers. ``--team`` also adds the
+The zip holds one ``TimeCheat-<version>/`` folder with the app, ``README.md`` and the ``start.bat`` / ``start.command`` launchers. ``--team`` also adds the
 ``timecheat_defaults.json`` from the project root (Jira server, meeting story, ...), so
 colleagues do not have to set anything up. That file is git-ignored: share the team zip
 inside the company only, and publish the generic one.
@@ -16,7 +15,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ["run.py", "requirements.txt", "README.md", "LICENSE", "start.bat", "start.command",
+FILES = ["run.py", "requirements.txt", "README.md", "start.bat", "start.command",
          "timecheat_defaults.example.json"]
 PACKAGE = "timecheat"
 DEFAULTS = "timecheat_defaults.json"

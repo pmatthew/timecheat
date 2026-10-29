@@ -67,7 +67,7 @@ Windows: `.venv\Scripts\python run.py` (same options).
 ## Using it
 
 1. **Log in** with your Jira server address (e.g. `https://jira.example.com/`; remembered for next time), your Jira username + password (or a personal access token on Jira 8.14+). Tick *Save the secret in the system keychain* to skip typing it next time: leave the field empty and the saved one is used.
-2. **Pick a month** (defaults to the current one) and a **Jira project**. The project's issues are cached in `~/.timecheat/cache`; refresh them with the ⟳ button.
+2. **Pick a month** (defaults to the current one) and a **Jira project** (the list shows the same projects as your Jira *Browse projects* page). The project's issues are cached in `~/.timecheat/cache`; refresh them with the ⟳ button.
 3. The **month view** shows your worklogs from all projects plus each day's total against the daily target (8 h by default, see *Settings*):
    * light green: target met
    * light red: under target
@@ -141,6 +141,6 @@ Releases, the team zip and the CI are described in [DEVELOPMENT.md](DEVELOPMENT.
 * The Graph token is kept in memory only. Passwords / tokens are stored only if you ask for it, and then
   only in the system keychain.
 
-## License
+## Third-party code
 
-MIT, see [LICENSE](LICENSE). Includes [FullCalendar](https://fullcalendar.io) (MIT) in `timecheat/fullcalendar/lib`.
+Includes [FullCalendar](https://fullcalendar.io) (MIT license) in `timecheat/fullcalendar/lib`.

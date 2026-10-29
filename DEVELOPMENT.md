@@ -38,7 +38,7 @@ usage see [README.md](README.md).
 | Jira | On-prem **Jira Server / Data Center** (developed against 8.13.5), REST API v2, native worklogs (no Tempo). The server address is entered on the login page or comes from the team defaults (§9). TLS verification off, because such servers often use a certificate from an internal CA. |
 | Authentication | Username + password **or** personal access token (Bearer), selectable on the login page; the secret can optionally be stored in the system keychain (`keyring`). ⚠️ The current server (8.13.5) does **not** support PATs (introduced in 8.14); TimeCheat detects this and tells the user to use the password. |
 | Month view scope | The user's own worklogs from **all** projects. The project selector only drives the issue cache and the search. |
-| Project selector | Every project the user can browse (`GET /project`). |
+| Project selector | Exactly the projects on the user's **Browse projects** page (`BrowseProjects.jspa?s=view_projects`), typically a handful out of the hundreds or thousands a user may browse. That list is computed by Jira itself and matches no single REST permission (Browse, Work On Issues and Create Issues all return far more projects), so it is read from the JSON the page embeds. If the page cannot be read, all browsable projects (`GET /project`) are shown with a warning. The Settings default-project list uses the same list. |
 | Issue cache | Open issues plus issues resolved in the last **90 days** (≈3 months). Stored on disk, refreshed with a button. |
 | Suggested issues | Issues assigned to the user (not Done), marked with ★ and listed first. |
 | Overlapping worklogs | Queued in the day view: an entry that would overlap the previous one is drawn right after it. The real start appears as "logged at HH:MM" and in the tooltip. |
@@ -52,7 +52,7 @@ usage see [README.md](README.md).
 | Editing | Popup edit, drag to move, drag the bottom edge to resize, delete, copy another day into this day. |
 | Worklog comment | Optional. |
 | Remaining estimate | `adjustEstimate=auto` (Jira's default behaviour). |
-| Pending changes | Kept in memory only (they survive a browser refresh, not an app restart). Logging out or quitting with pending changes asks for confirmation. |
+| Pending changes | Kept in memory only (they survive a browser refresh, not an app restart). Quitting with pending changes asks for confirmation. There is no log-out button: TimeCheat is a personal tool, you just quit it. |
 | UI language | English. |
 
 ## 3. Why NiceGUI (framework comparison)
@@ -190,7 +190,7 @@ All calls go to REST API v2 with TLS verification off.
 | Purpose | Call |
 |---|---|
 | Login check / current user | `GET /rest/api/2/myself` |
-| Projects for the selector | `GET /rest/api/2/project` |
+| Projects for the selector | `GET /secure/project/BrowseProjects.jspa?s=view_projects&os_authType=basic` → `WRM._unparsedData["com.atlassian.jira.project.browse:projects"]` (a JSON string inside a JS string literal); fallback `GET /rest/api/2/project` |
 | Issue cache | `POST /rest/api/2/search` – `project = "X" AND (statusCategory != Done OR resolved >= -90d)`, paged by 100 |
 | Assigned issues | `POST /rest/api/2/search` – `assignee = currentUser() AND statusCategory != Done` |
 | Issues with my worklogs in a month | `POST /rest/api/2/search` – `worklogAuthor = currentUser() AND worklogDate >= "<first-1d>" AND worklogDate <= "<last+1d>"` |
@@ -243,7 +243,7 @@ On Windows use `py -m venv .venv` and `.venv\Scripts\python` instead of `.venv/b
   * login and the busy indicators,
   * month and project switching,
   * selection, the dialog and minutes ↔ end sync,
-  * drag, resize, copy day, the Pending dialog (revert / discard all), upload with partial failure, and the logout guard.
+  * drag, resize, copy day, the Pending dialog (revert / discard all), upload with partial failure, and the quit guard.
 * Phase 2 was tested the same way:
   * token dialog, expired-token re-prompt, token chip;
   * import summary with skip reasons, auto-match via iCalUId, conflict dialog, clipping;
@@ -357,7 +357,7 @@ settings. A team ships them in a git-ignored `timecheat_defaults.json` next to `
 ### 9.1 What users get
 
 `tools/build_release.py` builds `dist/timecheat-<version>.zip` with one `TimeCheat-<version>/` folder:
-the `timecheat` package, `run.py`, `requirements.txt`, `README.md`, `LICENSE`,
+the `timecheat` package, `run.py`, `requirements.txt`, `README.md`,
 `timecheat_defaults.example.json` and the launchers. Tests, `.venv` and settings are left out.
 
 * `start.bat` (Windows) and `start.command` (macOS / Linux) find Python 3.10+ (`py -3`, then `python` /

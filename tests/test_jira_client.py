@@ -97,3 +97,78 @@ def test_token_on_jira_older_than_8_14_is_explained(monkeypatch):
         JiraClient("https://jira.example", token="tok")
     with pytest.raises(JiraError, match="Authentication failed"):
         JiraClient("https://jira.example", username="u", password="p")
+
+
+# --------------------------------------------------------------------------- #
+# project list from the "Browse projects" page
+# --------------------------------------------------------------------------- #
+
+
+def browse_page(projects: list[dict[str, Any]]) -> str:
+    """Mimic BrowseProjects.jspa: a JSON string embedded in a JavaScript string literal."""
+    import json
+
+    literal = json.dumps(json.dumps(projects, ensure_ascii=False), ensure_ascii=False)
+    return (
+        "<html><script>WRM._unparsedData[\"com.atlassian.jira.project.browse:categories\"]=\"[]\";\n"
+        f"WRM._unparsedData[\"com.atlassian.jira.project.browse:projects\"]={literal};\n"
+        "WRM._unparsedData[\"com.atlassian.jira.project.browse:selectedCategory\"]=\"\\\"all\\\"\";</script></html>"
+    )
+
+
+def stub_jira(monkeypatch, page_status: int, page: str, all_projects: list[dict[str, Any]]):
+    log: list[tuple[str, dict[str, Any]]] = []
+
+    def request(self, method, url, timeout=None, **kwargs):
+        log.append((url, kwargs))
+        if url.endswith("/secure/project/BrowseProjects.jspa"):
+            response = FakeResponse(page_status)
+            response.text = page
+            return response
+        path = url.split("/rest/api/2/", 1)[1]
+        if path == "myself":
+            return FakeResponse(200, {"name": "me", "key": "me", "displayName": "Me"})
+        if path == "project":
+            return FakeResponse(200, all_projects)
+        return FakeResponse(404, {"errorMessages": ["nope"]})
+
+    def raise_for_status(self):
+        if not self.ok:
+            raise requests.HTTPError(f"{self.status_code} error")
+
+    monkeypatch.setattr(requests.Session, "request", request)
+    monkeypatch.setattr(FakeResponse, "raise_for_status", raise_for_status, raising=False)
+    return log
+
+
+ALL = [{"key": k, "name": k.lower()} for k in ("AAA", "ALPHA", "BETA", "GAMMA", "OMEGA", "ZZZ")]
+
+
+def test_projects_come_from_the_browse_page(monkeypatch):
+    mine = [
+        {"key": "GAMMA", "name": "Gamma \"Factory\" – Ünnep", "id": 3, "projectCategoryId": 10},
+        {"key": "BETA", "name": "Beta Squad", "id": 2},
+        {"key": "ALPHA", "name": "Alpha / Ops", "id": 1},
+    ]
+    log = stub_jira(monkeypatch, 200, browse_page(mine), ALL)
+    client = JiraClient("https://jira.example", username="me", password="pw")
+    projects = client.projects()
+    assert [p.key for p in projects] == ["ALPHA", "BETA", "GAMMA"]
+    assert projects[2].name == "Gamma \"Factory\" – Ünnep"
+    assert client.projects_warning is None
+    url, kwargs = next((u, k) for u, k in log if "BrowseProjects" in u)
+    assert kwargs["params"] == {"s": "view_projects", "os_authType": "basic"}
+    assert kwargs["headers"]["Accept"] == "text/html"
+    assert not any(u.endswith("/rest/api/2/project") for u, _ in log)
+
+
+@pytest.mark.parametrize("status, page", [
+    (500, "error"),
+    (200, "<html>login form, no project data</html>"),
+    (200, browse_page([])),
+])
+def test_projects_fall_back_to_all_browsable(monkeypatch, status, page):
+    stub_jira(monkeypatch, status, page, ALL)
+    client = JiraClient("https://jira.example", username="me", password="pw")
+    assert [p.key for p in client.projects()] == [p["key"] for p in ALL]
+    assert client.projects_warning and "Browse projects" in client.projects_warning

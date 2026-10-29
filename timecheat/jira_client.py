@@ -9,6 +9,8 @@ does not include.
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -27,6 +29,9 @@ ADJUST_ESTIMATE = "auto"
 PAGE_SIZE = 100
 WORKLOG_FETCH_THREADS = 8
 PAT_MIN_VERSION = (8, 14)
+BROWSE_PROJECTS_DATA = re.compile(
+    r'WRM\._unparsedData\["com\.atlassian\.jira\.project\.browse:projects"\]\s*=\s*"((?:[^"\\]|\\.)*)"'
+)
 
 ProgressCallback = Callable[[int, int], None]
 
@@ -158,6 +163,8 @@ class JiraClient:
     ) -> None:
         self.server = server.rstrip("/")
         self.timeout = timeout
+        # Set by projects() when the "Browse projects" list could not be read and all projects are returned.
+        self.projects_warning: str | None = None
         self.session = requests.Session()
         self.session.verify = verify
         self.session.headers.update({"Accept": "application/json", "Content-Type": "application/json"})
@@ -234,8 +241,38 @@ class JiraClient:
     # -- reading ------------------------------------------------------------ #
 
     def projects(self) -> list[Project]:
+        """The projects on the user's "Browse projects" page; all browsable ones if that page cannot be read.
+
+        The page's list is computed server-side and matches no single REST permission, so it is read from the
+        JSON the page embeds for its own JavaScript.
+        """
+        self.projects_warning = None
+        try:
+            projects = self._browse_page_projects()
+        except (requests.RequestException, ValueError, KeyError, TypeError) as error:
+            projects, reason = [], str(error)
+        else:
+            reason = "the page listed no projects"
+        if projects:
+            return projects
+        self.projects_warning = (
+            f'Could not read your "Browse projects" list ({reason}); showing every project you can browse instead.'
+        )
+        return self.all_projects()
+
+    def all_projects(self) -> list[Project]:
         data = self._request("GET", "project")
         return sorted((Project(p["key"], p.get("name", "")) for p in data), key=lambda p: p.key)
+
+    def _browse_page_projects(self) -> list[Project]:
+        response = self.session.get(
+            f"{self.server}/secure/project/BrowseProjects.jspa",
+            params={"s": "view_projects", "os_authType": "basic"},
+            headers={"Accept": "text/html"},
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return parse_browse_projects(response.text)
 
     def project_issues(self, project: str, resolved_within_days: int) -> list[Issue]:
         jql = (
@@ -390,6 +427,16 @@ class JiraClient:
 
     def add_comment(self, issue_key: str, body: str) -> None:
         self._request("POST", f"issue/{issue_key}/comment", json={"body": body})
+
+
+def parse_browse_projects(page: str) -> list[Project]:
+    """Projects embedded in BrowseProjects.jspa as a JSON string inside a JavaScript string literal."""
+    match = BROWSE_PROJECTS_DATA.search(page)
+    if match is None:
+        raise ValueError("no project data on the page (not logged in, or the page has changed)")
+    data = json.loads(json.loads(f'"{match.group(1)}"'))
+    projects = {item["key"]: Project(item["key"], item.get("name", "")) for item in data if item.get("key")}
+    return sorted(projects.values(), key=lambda p: p.key)
 
 
 def _error_text(response: requests.Response) -> str:
