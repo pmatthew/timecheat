@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.10", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  launcher:
+    # Builds the release zip, extracts it and runs the launcher like a user would.
+    name: Launcher (${{ matrix.os }})
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python tools/build_release.py --out dist
+      - name: Run start.bat
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Expand-Archive (Get-ChildItem dist/*.zip).FullName -DestinationPath smoke
+          $folder = (Get-ChildItem smoke -Directory).FullName
+          cmd /c "`"$folder\start.bat`" --version"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run start.command
+        if: runner.os != 'Windows'
+        run: |
+          unzip -q dist/*.zip -d smoke
+          smoke/TimeCheat-*/start.command --version < /dev/null
+
+  release:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, launcher]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Check that the tag matches __version__
+        run: |
+          version=$(python -c "import sys; sys.path.insert(0, 'tools'); import build_release; print(build_release.version())")
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "Tag $GITHUB_REF_NAME != v$version"; exit 1; }
+      - run: python tools/build_release.py --out dist
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/*.zip --title "TimeCheat $GITHUB_REF_NAME" --generate-notes

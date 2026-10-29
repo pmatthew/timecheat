@@ -1,0 +1,10 @@
+nicegui>=3.18,<4
+requests>=2.31,<3
+# The internal Jira runs with a certificate the laptop trust store cannot verify,
+# so the client turns verification off and has to silence the warning that follows.
+urllib3>=2,<3
+keyring>=25,<26
+# Hungarian public holidays, bridge days and the Saturdays they are worked off on.
+holidays>=0.60
+# Windows has no system time zone database; zoneinfo needs it for Europe/Budapest.
+tzdata; sys_platform == "win32"

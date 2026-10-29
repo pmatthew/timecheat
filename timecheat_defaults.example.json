@@ -1,0 +1,6 @@
+{
+  "server": "https://jira.example.com/",
+  "meeting_story": "General meetings",
+  "work_start": "09:00",
+  "work_end": "17:00"
+}

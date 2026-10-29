@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Personal and team settings (never commit; see timecheat_defaults.example.json)
+timecheat_settings*.json
+timecheat_defaults.json
+
+# Release builds
+dist/
+*.zip
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
