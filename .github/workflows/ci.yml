@@ -7,6 +7,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Pushing main and a tag on the same commit would test it twice; keep only the newest run.
+concurrency:
+  group: ci-${{ github.sha }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
@@ -15,6 +20,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.10", "3.13"]
+        exclude:
+          # macOS runners are scarce; 3.10 is covered on Linux and Windows.
+          - os: macos-latest
+            python: "3.10"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4

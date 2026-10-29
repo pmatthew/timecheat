@@ -375,11 +375,13 @@ extracting the new zip and deleting the old folder.
 
 1. Raise `__version__` in `timecheat/__init__.py` (semantic versioning) and commit.
 2. Tag and push: `git tag v1.2.0 && git push origin main v1.2.0`.
-3. CI (`.github/workflows/ci.yml`) runs the tests on Windows, macOS and Linux with Python 3.10 and
-   3.13, builds the zip, extracts it and runs `start.bat --version` / `start.command --version`
+3. CI (`.github/workflows/ci.yml`) runs the tests on Windows and Linux with Python 3.10 and 3.13 and
+   on macOS with 3.13 (macOS runners are scarce), builds the zip, extracts it and runs `start.bat --version` / `start.command --version`
    (this installs the requirements from scratch, so a missing dependency such as `tzdata` on
    Windows fails here). For a `v*` tag that matches `__version__` it then creates the GitHub
    release with the generic zip attached.
+   Runs for the same commit share a concurrency group, so pushing `main` and the tag together
+   tests it only once (the older run is cancelled).
 4. For the team zip, run locally with your `timecheat_defaults.json` in place:
    `.venv/bin/python tools/build_release.py --team`, and share `dist/timecheat-<version>-team.zip`.
 
