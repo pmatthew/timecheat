@@ -40,7 +40,7 @@ def test_generic_zip_contents(project, tmp_path):
                 "timecheat/fullcalendar/lib/index.global.min.js"} <= short
         assert not any("__pycache__" in n or ".DS_Store" in n or n.endswith(".pyc") for n in short)
         assert "timecheat_defaults.json" not in short
-        assert not any(n.startswith(("tests/", "_archive/", ".venv/")) for n in short)
+        assert not any(n.startswith(("tests/", ".venv/")) for n in short)
         assert archive.read(folder + "start.bat") == b"@echo off\r\n:label\r\necho hi\r\n"
         mode = archive.getinfo(folder + "start.command").external_attr >> 16
         assert mode & stat.S_IXUSR

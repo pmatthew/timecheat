@@ -103,7 +103,7 @@ class Settings:
         path = cls.path()
         source = path
         legacy = APP_DIR / LEGACY_SETTINGS_FILE
-        # Phase 1 also wrote the home file, so the newer of the two is the current one.
+        # Older versions wrote both files, so the newer of the two is the current one.
         if (not _demo and not os.environ.get("TIMECHEAT_SETTINGS") and legacy.is_file()
                 and (not path.is_file() or legacy.stat().st_mtime > path.stat().st_mtime)):
             source = legacy

@@ -92,8 +92,7 @@ timecheat/
 ├── tools/build_release.py       # builds dist/timecheat-<version>[-team].zip (§9)
 ├── .github/workflows/ci.yml     # tests on Windows/macOS/Linux, launcher smoke test, GitHub release on v* tags
 ├── timecheat_defaults.example.json   # template for the git-ignored team defaults
-├── pytest.ini                   # limits test discovery to tests/ (so _archive/ is not collected)
-└── _archive/v1/                 # untouched copy of the Phase 1 code base, for rollback
+└── pytest.ini                   # limits test discovery to tests/
 ```
 
 ### 4.1 Layers
@@ -276,7 +275,6 @@ The day view has an **Outlook** button. It pulls your calendar for the month fro
 | Where the match lives | 🔗 = found in an iCalUId comment in Jira (persistent). ↺ = remembered from a manual choice in this session (lost on quit). Card, tooltip, entry dialog and import summary show which one applies. Comments are only written by **Create sub-task** (recurring meetings) or after confirming the prompt above. |
 | Create sub-task | In the meeting's dialog. A confirmation popup is prefilled with the meeting subject. The **parent defaults to the meeting story** (★); any other known non-sub-task issue (story, task, bug, epic…) can be chosen instead. The sub-task is **created immediately** in the parent's project and assigned to you; if the create screen rejects the assignee, it is created unassigned. For recurring meetings, the comment `"iCalUId": "<series ID>"` is added. Auto-matching only reads the story's sub-tasks, so under another parent the series is remembered for the session only (↺); the dialog says so before creating. The button is enabled whenever there is a possible parent (also when the project has no story). |
 | Unassigned drafts on upload | **Let's TimeCheat** lists them and offers **Remove unassigned meetings and upload the rest** or **Go back**. `build_plan` also refuses unassigned entries as a safety net. |
-| Rollback | The Phase 1 code is kept unchanged in `_archive/v1/`. To roll back, copy `_archive/v1/*` over the project (or run `python _archive/v1/run.py`). |
 
 ### 8.2 iCalUId and recurring meetings
 
@@ -360,7 +358,7 @@ settings. A team ships them in a git-ignored `timecheat_defaults.json` next to `
 
 `tools/build_release.py` builds `dist/timecheat-<version>.zip` with one `TimeCheat-<version>/` folder:
 the `timecheat` package, `run.py`, `requirements.txt`, `README.md`, `LICENSE`,
-`timecheat_defaults.example.json` and the launchers. Tests, `_archive/`, `.venv` and settings are left out.
+`timecheat_defaults.example.json` and the launchers. Tests, `.venv` and settings are left out.
 
 * `start.bat` (Windows) and `start.command` (macOS / Linux) find Python 3.10+ (`py -3`, then `python` /
   `python3`), create `.venv` on the first start, and reinstall `requirements.txt` whenever it differs

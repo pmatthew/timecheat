@@ -112,8 +112,6 @@ Overlapping worklogs are queued one after the other in the day view; their real 
    * 🔗 = matched via an iCalUId comment in Jira (persistent); ↺ = remembered in this session only (nothing written to Jira).
 7. **Let's TimeCheat** does not upload meetings without an issue: it offers to remove them and upload the rest, or to go back.
 
-The Phase 1 version is kept in `_archive/v1/` for rollback (`.venv/bin/python _archive/v1/run.py`).
-
 ## Files
 
 * `~/.timecheat/settings.json` – your settings: server, last username, last / default project, working period, meeting story. Only values that differ from the defaults are stored. Demo mode uses `settings.demo.json`. (Before 1.1 this was `timecheat_settings.json` next to `run.py`; it is picked up automatically.)
