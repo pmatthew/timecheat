@@ -91,7 +91,7 @@ Overlapping worklogs are queued one after the other in the day view; their real 
   * **Working period**, default 09:00–17:00. Its length is the daily target: 09:00–17:00 = 8h, 08:00–14:00 = 6h. The day view highlights the period and opens on it.
   * **Meeting story**: the summary of the story whose sub-tasks hold your recurring meetings, e.g. *General meetings* (see [Outlook meetings](#outlook-meetings)). Empty turns automatic matching and sub-task creation off.
 
-  Settings are saved to `~/.timecheat/settings.json`.
+  Settings are saved to `~/.timecheat/settings.json`. The top right corner of the dialog shows the running version (e.g. *TimeCheat 1.4.0*); `start.command --version` / `start.bat --version` prints it too.
 * ⏻ **Quit** (header and login page) stops TimeCheat. If there are changes not uploaded to Jira yet, it asks first.
 
 ## Outlook meetings

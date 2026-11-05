@@ -19,6 +19,7 @@ from typing import Any
 from nicegui import app, background_tasks, run, ui
 from nicegui.events import GenericEventArguments
 
+from . import __version__
 from . import settings as cfg
 from .cache import IssueCache
 from .fullcalendar import FullCalendar
@@ -1797,9 +1798,11 @@ class MainPage:
         if settings.default_project and settings.default_project not in options:
             options[settings.default_project] = settings.default_project
         with self.root, ui.dialog() as dialog, ui.card().classes("w-[540px] max-w-full gap-3"):
-            with ui.row().classes("items-center gap-2"):
+            with ui.row().classes("w-full items-center gap-2"):
                 ui.icon("settings", size="1.5em", color="primary")
                 ui.label("Settings").classes("text-lg font-bold")
+                ui.space()
+                ui.label(f"TimeCheat {__version__}").classes("text-xs text-grey-6")
             project = ui.select(options, value=settings.default_project, label="Default Jira project",
                                 with_input=True).props("options-dense").classes("w-full")
             ui.label("Selected automatically when TimeCheat starts.").classes("text-xs text-grey-7 -mt-2")
