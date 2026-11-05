@@ -1,8 +1,9 @@
 """Outlook calendar access through Microsoft Graph, with a token pasted from Graph Explorer.
 
-The token is a delegated access token of the signed-in user. It is held in memory
-only: it carries every scope ever consented to in Graph Explorer, so it is treated
-like a password and never written to disk or logged.
+The token is a delegated access token of the signed-in user. It carries every scope
+ever consented to in Graph Explorer, so it is treated like a password: never logged,
+and saved only in an owner-only file until it expires (``settings.save_graph_token``),
+so restarting TimeCheat does not ask for it again.
 
 ``iCalUId`` differs for every occurrence of a recurring meeting. For Exchange
 items it is a "global object ID" whose bytes 17-20 hold the occurrence date;

@@ -1,4 +1,4 @@
-"""Settings, local cache directory (``~/.timecheat``) and the system keychain.
+"""Settings, local cache directory (``~/.timecheat``), the saved Graph token and the system keychain.
 
 Settings are layered: built-in defaults, then the optional ``timecheat_defaults.json``
 next to ``run.py`` (a team can ship its Jira server and meeting story with the app),
@@ -12,6 +12,7 @@ import json
 import os
 import re
 from dataclasses import asdict, dataclass, fields
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -23,6 +24,9 @@ APP_DIR = Path(__file__).resolve().parents[1]
 SETTINGS_FILE = "settings.json"
 DEMO_SETTINGS_FILE = "settings.demo.json"
 DEFAULTS_FILE = "timecheat_defaults.json"
+# The Outlook (Microsoft Graph) token, kept until it expires so a restart does not ask again.
+GRAPH_TOKEN_FILE = "graph_token.json"
+DEMO_GRAPH_TOKEN_FILE = "graph_token.demo.json"
 # Before 1.1 the settings lived next to run.py.
 LEGACY_SETTINGS_FILE = "timecheat_settings.json"
 _HHMM = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$|^24:00$")
@@ -151,6 +155,49 @@ def validate_work_period(start: str, end: str) -> str | None:
 
 def server_host(server: str) -> str:
     return urlparse(server).netloc or server
+
+
+def graph_token_path() -> Path:
+    """Next to the settings file; demo runs use their own file."""
+    return Settings.path().parent / (DEMO_GRAPH_TOKEN_FILE if _demo else GRAPH_TOKEN_FILE)
+
+
+def load_graph_token(now: datetime | None = None) -> tuple[str, datetime | None] | None:
+    """The saved Graph token and its expiry, or None. An expired token is deleted."""
+    data = _read_json(graph_token_path())
+    token = data.get("token")
+    if not isinstance(token, str) or not token:
+        return None
+    try:
+        expires = datetime.fromisoformat(data["expires"]) if data.get("expires") else None
+    except (TypeError, ValueError):
+        expires = None
+    if expires is not None and expires <= (now or datetime.now()):
+        delete_graph_token()
+        return None
+    return token, expires
+
+
+def save_graph_token(token: str, expires: datetime | None) -> bool:
+    """Saves the token readable only by the user (it carries every scope consented in Graph Explorer)."""
+    path = graph_token_path()
+    content = json.dumps({"token": token, "expires": expires.isoformat() if expires else None})
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            file.write(content)
+        os.chmod(path, 0o600)  # os.open keeps the mode of an existing file
+    except OSError:
+        return False
+    return True
+
+
+def delete_graph_token() -> None:
+    try:
+        graph_token_path().unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _keyring_service(server: str) -> str:

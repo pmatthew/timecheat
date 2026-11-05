@@ -1,6 +1,7 @@
 import json
 import os
-from datetime import date
+import sys
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -112,6 +113,47 @@ def test_invalid_work_period_in_file_falls_back_to_defaults(paths):
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps({"work_start": "17:00", "work_end": "09:00"}))
     assert (cfg.Settings.load().work_start, cfg.Settings.load().work_end) == ("09:00", "17:00")
+
+
+def test_graph_token_is_saved_until_it_expires(paths):
+    cfg.configure(demo=False)
+    assert cfg.load_graph_token() is None
+    expires = datetime(2026, 11, 6, 11, 0)
+    assert cfg.save_graph_token("abc.def.ghi", expires)
+    path = paths / "home" / "graph_token.json"
+    assert cfg.graph_token_path() == path
+    if sys.platform != "win32":
+        assert path.stat().st_mode & 0o777 == 0o600
+    assert cfg.load_graph_token(now=expires - timedelta(minutes=1)) == ("abc.def.ghi", expires)
+    # Settings are not touched.
+    assert not cfg.Settings.path().exists()
+    assert cfg.load_graph_token(now=expires) is None
+    assert not path.exists()
+
+
+def test_graph_token_without_expiry_overwrite_and_delete(paths):
+    cfg.configure(demo=False)
+    assert cfg.save_graph_token("first", datetime(2026, 11, 6))
+    assert cfg.save_graph_token("opaque", None)
+    assert cfg.load_graph_token() == ("opaque", None)
+    cfg.delete_graph_token()
+    assert cfg.load_graph_token() is None
+    cfg.delete_graph_token()
+    write(cfg.graph_token_path(), {"token": "x", "expires": "not a date"})
+    assert cfg.load_graph_token() == ("x", None)
+    write(cfg.graph_token_path(), {"token": 5})
+    assert cfg.load_graph_token() is None
+
+
+def test_demo_keeps_its_own_graph_token(paths):
+    cfg.configure(demo=False)
+    cfg.save_graph_token("real", None)
+    cfg.configure(demo=True)
+    assert cfg.graph_token_path().name == "graph_token.demo.json"
+    assert cfg.load_graph_token() is None
+    cfg.save_graph_token("demo", None)
+    cfg.configure(demo=False)
+    assert cfg.load_graph_token() == ("real", None)
 
 
 def test_validate_work_period():

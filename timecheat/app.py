@@ -124,7 +124,7 @@ class AppState:
     loaded_months: set[tuple[int, int]] = field(default_factory=set)
     month: tuple[int, int] = field(default_factory=lambda: (date.today().year, date.today().month))
     day: date = field(default_factory=date.today)
-    # Outlook (Microsoft Graph) - the token lives in memory only.
+    # Outlook (Microsoft Graph) - the token is also saved until it expires (settings.save_graph_token).
     graph_token: str = ""
     graph_expires: datetime | None = None
     graph_warned: bool = False
@@ -154,6 +154,15 @@ class AppState:
 
     def token_valid(self) -> bool:
         return bool(self.graph_token) and (self.graph_expires is None or self.graph_expires > datetime.now())
+
+    def restore_graph_token(self) -> None:
+        """Takes the token saved by an earlier run, unless it has expired."""
+        if self.graph_token:
+            return
+        saved = cfg.load_graph_token()
+        if saved:
+            self.graph_token, self.graph_expires = saved
+            self.graph_warned = False
 
     def reset(self) -> None:
         """Forget everything of the previous login (kept: mode, settings, working calendar)."""
@@ -522,6 +531,7 @@ class MainPage:
         if project and not s.project_keys and project in {p.key for p in s.projects}:
             await self._select_project(project)
         self._update_cache_tooltip()
+        s.restore_graph_token()
         self._tick_token()
         await self._show_month(*s.month, day=s.day)
 
@@ -1048,7 +1058,7 @@ class MainPage:
             if left.total_seconds() <= 0:
                 chip.text, color = "expired", "negative"
             else:
-                chip.text = f"{minutes} min"
+                chip.text = f"{minutes} min" if minutes < 60 else f"{minutes // 60}h {minutes % 60:02d}m"
                 color = "warning" if left <= TOKEN_WARNING else "positive"
                 if left <= TOKEN_WARNING and not s.graph_warned:
                     s.graph_warned = True
@@ -1069,19 +1079,22 @@ class MainPage:
                 ui.label(reason).classes("text-orange-9 font-medium")
             ui.label(
                 "TimeCheat reads your calendar with a Microsoft Graph token copied from Graph Explorer. "
-                "It is kept in memory only and is valid for about 60–90 minutes."
+                "It is saved on this computer (readable only by you) until it expires, so restarting "
+                "TimeCheat does not ask for it again."
             ).classes("text-sm text-grey-8")
             with ui.column().classes("tc-help w-full bg-blue-50 rounded p-3 text-sm gap-1") as help_box:
                 ui.html(
                     "<ol style='padding-left:1.2em; list-style:decimal'>"
-                    f"<li>Open <a href='{GRAPH_EXPLORER_URL}' target='_blank' style='color:#1d4ed8'>"
+                    f"<li>Open <a href='{GRAPH_EXPLORER_URL}' target='_blank' rel='noopener' style='color:#1d4ed8'>"
                     "Graph Explorer</a> and sign in with your work account (top right).</li>"
                     "<li>Run a calendar query once, e.g. <code>GET https://graph.microsoft.com/v1.0/me/calendarView"
                     "?startDateTime=2026-10-01T00:00:00&amp;endDateTime=2026-10-02T00:00:00</code>. If it asks, "
                     "consent to <b>Calendars.Read</b> under <i>Modify permissions</i>.</li>"
                     "<li>Open the <b>Access token</b> tab under the request box and click the copy icon.</li>"
                     "<li>Paste it below. When it expires, TimeCheat warns you and asks for a new one.</li>"
-                    "</ol>"
+                    "</ol>",
+                    # Static, trusted content; the default sanitizer would drop target='_blank'.
+                    sanitize=False,
                 )
                 if s.demo:
                     ui.label("Demo mode: any text works; type 'expired' to simulate an expired token.").classes(
@@ -1117,6 +1130,9 @@ class MainPage:
             return False
         s.graph_token, s.graph_expires = result
         s.graph_warned = False
+        if not cfg.save_graph_token(s.graph_token, s.graph_expires):
+            ui.notify("The token could not be saved; TimeCheat will ask for it again after a restart.",
+                      type="warning")
         self._tick_token()
         return True
 
@@ -1141,6 +1157,7 @@ class MainPage:
                     events = await run.io_bound(s.graph().calendar_view, first, last)
             except GraphAuthError as error:
                 s.graph_token, s.graph_expires = "", None
+                cfg.delete_graph_token()
                 self._tick_token()
                 if attempt == 0 and await self._token_dialog(str(error)):
                     continue

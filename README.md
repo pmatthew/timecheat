@@ -100,7 +100,7 @@ Overlapping worklogs are queued one after the other in the day view; their real 
    1. Open [Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer) and sign in with your work account.
    2. Run a calendar query once, e.g. `GET https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=2026-10-01T00:00:00&endDateTime=2026-10-02T00:00:00`. If asked, consent to **Calendars.Read** under *Modify permissions*.
    3. Open the **Access token** tab and copy the token, then paste it into TimeCheat.
-3. The token is valid for about 60–90 minutes and is kept in memory only. The key chip next to the Outlook button shows the minutes left; click it to paste a new one. TimeCheat warns 5 minutes before expiry and asks again when the token no longer works.
+3. The token is kept until it expires: it is saved on this computer (`~/.timecheat/graph_token.json`, readable only by you), so restarting TimeCheat does not ask for it again. The key chip next to the Outlook button shows the time left; click it to paste a new one. TimeCheat warns 5 minutes before expiry and asks again when the token no longer works.
 4. The month's meetings are loaded and the selected day's meetings are put into the free time:
    * Meetings that are only partly free are clipped.
    * Meetings that end at most 10 minutes before the half hour (Outlook's 10:00–10:25 or 10:00–10:20) are booked up to it (10:30), as far as that time is free and no other meeting starts in it. 10:00–10:15 stays as it is.
@@ -117,6 +117,7 @@ Overlapping worklogs are queued one after the other in the day view; their real 
 * `~/.timecheat/settings.json` – your settings: server, last username, last / default project, working period, meeting story. Only values that differ from the defaults are stored. Demo mode uses `settings.demo.json`. (Before 1.1 this was `timecheat_settings.json` next to `run.py`; it is picked up automatically.)
 * `timecheat_defaults.json` (optional, next to `run.py`) – defaults for a team, e.g. the Jira server and the meeting story; see `timecheat_defaults.example.json`. Your own settings override them.
 * The password / token, if you ticked *Save the secret*, is in the system keychain (Keychain, Windows Credential Manager, Secret Service).
+* `~/.timecheat/graph_token.json` – the Outlook (Microsoft Graph) token until it expires, readable only by you. Delete it to forget the token. Demo mode uses `graph_token.demo.json`.
 * `~/.timecheat/cache/<server>/<PROJECT>.json` – issue cache
 * `~/.timecheat/workdays.json` (optional) – extra working days / days off, e.g. `{"workdays": ["2027-01-09"], "days_off": ["2027-01-02"]}`
 
@@ -138,8 +139,9 @@ Releases, the team zip and the CI are described in [DEVELOPMENT.md](DEVELOPMENT.
 * TimeCheat runs a local web server on `127.0.0.1` only; nothing is reachable from other machines.
 * TLS certificate verification towards Jira is **off**, because on-prem Jira servers often use a certificate
   from an internal CA that Python does not trust. Use it on a network you trust.
-* The Graph token is kept in memory only. Passwords / tokens are stored only if you ask for it, and then
-  only in the system keychain.
+* The Graph token is saved in `~/.timecheat/graph_token.json` (owner-only) until it expires. It allows
+  everything you ever consented to in Graph Explorer, so treat the file like a password. Jira passwords /
+  tokens are stored only if you ask for it, and then only in the system keychain.
 
 ## Third-party code
 

@@ -44,7 +44,7 @@ usage see [README.md](README.md).
 | Overlapping worklogs | Queued in the day view: an entry that would overlap the previous one is drawn right after it. The real start appears as "logged at HH:MM" and in the tooltip. |
 | Working period / daily target | Set in **Settings** (gear icon), default **09:00–17:00**. The daily target is the length of the period (09:00–17:00 = 8h, 08:00–14:00 = 6h; minutes allowed, e.g. 7.5h). |
 | Visible part of the day | The working period is highlighted as business hours; it is shown with 1 hour of margin on each side (default 08:00–18:00). The rest of the day is reachable by scrolling. |
-| Settings file | `~/.timecheat/settings.json` (since 1.1; a fresh zip must not overwrite them). It holds the default project, the working period, the server, the auth mode, the username, the last project and the meeting story. Layers: built-in defaults < `timecheat_defaults.json` next to `run.py` (team defaults, git-ignored, not used in demo mode) < the user's file. Only values that differ from the defaults are saved, so changed team defaults still reach everyone. Demo mode uses `settings.demo.json`. `TIMECHEAT_SETTINGS` overrides the path. The 1.0 file `timecheat_settings.json` next to `run.py` is read while it is newer than the home file. Secrets stay in the keychain. |
+| Settings file | `~/.timecheat/settings.json` (since 1.1; a fresh zip must not overwrite them). It holds the default project, the working period, the server, the auth mode, the username, the last project and the meeting story. Layers: built-in defaults < `timecheat_defaults.json` next to `run.py` (team defaults, git-ignored, not used in demo mode) < the user's file. Only values that differ from the defaults are saved, so changed team defaults still reach everyone. Demo mode uses `settings.demo.json`. `TIMECHEAT_SETTINGS` overrides the path. The 1.0 file `timecheat_settings.json` next to `run.py` is read while it is newer than the home file. Secrets stay in the keychain; the only exception is the Outlook token (§8.1), which has its own owner-only file. |
 | Default project | Selected automatically at start-up; if none is set, the last selected project is used. |
 | Quit | Power button in the header and on the login page. It stops the server process; with pending changes it asks first. |
 | Day colours | Light green = target met, light red = under target, light orange = over target (e.g. 9/8h, or any work on a day off), grey = weekend / public holiday (target 0). Future working days with nothing booked stay neutral (see §6). |
@@ -84,7 +84,7 @@ timecheat/
 │   ├── upload.py                # pending changes -> Jira operations, PlanRunner
 │   ├── cache.py                 # on-disk issue cache per project
 │   ├── workdays.py              # Hungarian working-day calendar + overrides
-│   ├── settings.py              # ~/.timecheat/settings.json + team defaults (Settings dialog), keychain helpers
+│   ├── settings.py              # ~/.timecheat/settings.json + team defaults (Settings dialog), keychain helpers, saved Graph token
 │   ├── outlook.py               # Phase 2: Microsoft Graph client, Meeting, event filter, iCalUId series ID
 │   ├── meetings.py              # Phase 2: meeting conflicts, clipping into free time, iCalUId comments
 │   └── demo.py                  # in-memory fake Jira + fake Graph for --demo and tests
@@ -246,6 +246,7 @@ On Windows use `py -m venv .venv` and `.venv\Scripts\python` instead of `.venv/b
   * drag, resize, copy day, the Pending dialog (revert / discard all), upload with partial failure, and the quit guard.
 * Phase 2 was tested the same way:
   * token dialog, expired-token re-prompt, token chip;
+  * saved token: reused after a restart without asking, deleted when Graph rejects it; the Graph Explorer link opens a new tab;
   * import summary with skip reasons, auto-match via iCalUId, conflict dialog, clipping;
   * sub-task creation (with and without the iCalUId comment), series propagation;
   * the unassigned guard and the upload.
@@ -258,8 +259,9 @@ The day view has an **Outlook** button. It pulls your calendar for the month fro
 
 | Topic | Decision |
 |---|---|
-| Authentication | A Microsoft Graph access token copied from **Graph Explorer** and pasted into TimeCheat, so no app registration is needed. The token is kept **in memory only** (never on disk or in logs), because it carries every scope consented to in Graph Explorer. |
-| Token lifetime | Read from the JWT `exp` claim and shown as a chip in the day header (`47 min`). A warning appears when 5 minutes are left. Once expired, or when Graph answers 401, the token dialog reopens and the call is retried. |
+| Authentication | A Microsoft Graph access token copied from **Graph Explorer** and pasted into TimeCheat, so no app registration is needed. The Graph Explorer link in the help opens in a new browser tab (`ui.html(..., sanitize=False)`, because the default sanitizer drops `target`). The token is never logged. |
+| Saved token | The token carries every scope consented to in Graph Explorer, so it is treated like a password. Still, it is kept until it expires, so restarting TimeCheat (e.g. several times a day) does not ask for it again. It goes into `graph_token.json` next to `settings.json` (`graph_token.demo.json` in demo mode), with its expiry. The file is created owner-only (`0600`); the keychain is not used, because Windows Credential Manager cannot hold a token this long. On start-up an expired saved token is deleted. A token that Graph rejects (401) is deleted too, and TimeCheat asks for a new one. |
+| Token lifetime | Read from the JWT `exp` claim and shown as a chip in the day header (`47 min`, `23h 05m`). A warning appears when 5 minutes are left. Once expired, or when Graph answers 401, the token dialog reopens and the call is retried. |
 | Help | A "?" button in the token dialog shows step-by-step instructions. They are open by default until the first token is entered. |
 | Fetch scope | The whole selected month in one call (paged), cached per month for the session. **Refetch from Outlook** in the summary dialog loads it again. |
 | Fill scope | Only the selected day. |
@@ -324,6 +326,7 @@ Prefer: outlook.timezone="Europe/Budapest"
   * `GraphClient` (`calendar_view`);
   * `Meeting`, `filter_meetings` (returns kept meetings and `SkippedEvent`s with a reason);
   * `series_id`, `token_expiry` (JWT `exp`, not verified), `clean_token` (strips quotes / `Bearer`).
+* `settings.py`: `save_graph_token` / `load_graph_token` / `delete_graph_token` (the saved token, see §8.1); `AppState.restore_graph_token` in `app.py` loads it when the main view opens.
 * `meetings.py`:
   * `find_conflicts` (chained overlaps form one group);
   * `fill_day` (subtracts the displayed busy intervals, clips, drops pieces under 5 minutes, rounds early ends up to the half hour, skips already imported ones);
