@@ -63,6 +63,44 @@ MATCH_SESSION = "session"  # chosen by hand earlier in this session - memory onl
 
 
 @dataclass(frozen=True)
+class IssueTime:
+    """Time on one issue as Jira knows it: the user's own worklogs (all time), everyone else's, the estimates."""
+
+    mine: int = 0
+    others: int = 0
+    original: int | None = None  # original estimate, None if the issue has none
+    remaining: int | None = None  # remaining estimate
+
+    def with_pending(self, pending: int) -> TimeSummary:
+        """The figures once ``pending`` seconds of local changes on this issue are uploaded."""
+        mine = max(0, self.mine + pending)
+        everyone = mine + self.others
+        remaining = None if self.remaining is None else max(0, self.remaining - pending)
+        return TimeSummary(self.mine, pending, mine, self.others, everyone, self.original, self.remaining, remaining)
+
+
+@dataclass(frozen=True)
+class TimeSummary:
+    in_jira: int  # the user's time in Jira
+    pending: int  # what the local changes add (negative: take away)
+    mine: int  # the user's time including the local changes
+    others: int
+    everyone: int
+    estimate: int | None
+    remaining: int | None  # remaining estimate in Jira now
+    remaining_after: int | None  # roughly, after uploading (Jira adjusts it automatically)
+
+    @property
+    def over(self) -> int:
+        """How far everyone's time exceeds the original estimate (0 if within, or no estimate)."""
+        return max(0, self.everyone - self.estimate) if self.estimate else 0
+
+    @property
+    def used_percent(self) -> int | None:
+        return round(100 * self.everyone / self.estimate) if self.estimate else None
+
+
+@dataclass(frozen=True)
 class MeetingRef:
     """Where a draft came from when it was imported from Outlook."""
 
@@ -155,6 +193,23 @@ class Timesheet:
 
     def is_pending(self, uid: str) -> bool:
         return self.current.get(uid) != self.remote.get(uid)
+
+    def pending_by_issue(self, editing: Worklog | None = None) -> dict[str, int]:
+        """Seconds the local changes add to (negative: take from) each issue.
+
+        ``editing`` is taken as the current version of its worklog, e.g. one still open in the edit dialog.
+        """
+        current = self.current if editing is None else {**self.current, editing.uid: editing}
+        result: dict[str, int] = {}
+        for uid in self.remote.keys() | current.keys():
+            before, after = self.remote.get(uid), current.get(uid)
+            if before == after:
+                continue
+            if before is not None and before.is_assigned:
+                result[before.issue_key] = result.get(before.issue_key, 0) - before.seconds
+            if after is not None and after.is_assigned:
+                result[after.issue_key] = result.get(after.issue_key, 0) + after.seconds
+        return result
 
     def changes(self) -> list[Change]:
         result: list[Change] = []

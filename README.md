@@ -75,6 +75,7 @@ Windows: `.venv\Scripts\python run.py` (same options).
    * grey: weekend or Hungarian public holiday
 4. **Click a day** to open it in the day view on the right.
    * **Drag over free time** (30-minute steps) to create an entry. Pick the issue (★ = assigned to you; type to search by key or text), adjust start / end / minutes and add an optional comment.
+   * Under the issue field you see **your total time on that issue** (all time, with the not-yet-uploaded changes counted, including the entry you are editing). If the issue has an estimate, a bar compares it with everyone's time: blue = you in Jira, striped = not uploaded yet, grey = others, red = over the estimate. The remaining estimate is shown too. Hovering an entry in the calendar shows the same figures.
    * **Click** an entry to edit, delete or revert it.
    * **Drag** an entry to move it, or drag its bottom edge to change its length. The start (when moving) or the end (when resizing) snaps to the nearest half hour, so a 10:38 entry dragged down lands on 11:00, not 11:08.
    * Use ⧉ to copy another day's entries into the selected day.

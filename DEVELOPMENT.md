@@ -29,6 +29,7 @@ usage see [README.md](README.md).
 | R11 | A **Let's TimeCheat** button lists exactly what will be written to Jira; the upload starts only after the user confirms | ✅ |
 | R12 | Every wait is shown with an hourglass and/or progress bar | ✅ |
 | R13 | Phase 2: Outlook meetings → worklog drafts (see §8) | ✅ |
+| R14 | Show how much time the user has booked on an issue (all time, including the pending changes of this session) and, where the issue has one, its estimate | ✅ |
 
 ## 2. Decisions
 
@@ -52,6 +53,7 @@ usage see [README.md](README.md).
 | Editing | Popup edit, drag to move, drag the bottom edge to resize, delete, copy another day into this day. |
 | Worklog comment | Optional. |
 | Remaining estimate | `adjustEstimate=auto` (Jira's default behaviour). |
+| Time per issue | Shown in two places. The worklog dialog has a box under the issue field, which follows the chosen issue, the start and the duration as you edit. Each entry's tooltip in the month and day views carries the same figures as text. What is shown: the user's **all-time** total on the issue in Jira, plus or minus the **pending changes** of the session (including the entry being edited), and everyone else's time. If the issue has an **original estimate**, a bar is measured against it: own time in Jira is blue, pending is striped, others are grey, and the part over the estimate is red. The **remaining estimate** comes with its expected value after upload (Jira lowers it on upload, `adjustEstimate=auto`, not below 0). Issues without an estimate show no bar. Only the issue's own fields are used, not the sub-task aggregates. |
 | Pending changes | Kept in memory only (they survive a browser refresh, not an app restart). Quitting with pending changes asks for confirmation. There is no log-out button: TimeCheat is a personal tool, you just quit it. |
 | UI language | English. |
 
@@ -118,7 +120,7 @@ timecheat/
 | present | differs, same issue | `update` |
 | present | differs, other issue | `move` (Jira cannot move a worklog → create + delete) |
 
-As a result, revert, discard all, the pending badge, the faded styling and the upload plan all come from the same comparison. Editing an entry back to its original value automatically makes it "not pending" again.
+As a result, revert, discard all, the pending badge, the faded styling and the upload plan all come from the same comparison. Editing an entry back to its original value automatically makes it "not pending" again. The same comparison gives `pending_by_issue()`, the seconds the pending changes add to or take from each issue. It can also take the entry still open in the edit dialog. The time-per-issue figures (`IssueTime.with_pending`) use it.
 
 `merge_remote(first, last, fresh)` replaces the Jira baseline for a date range (when a month is loaded or reloaded) and keeps local edits:
 
@@ -193,8 +195,9 @@ All calls go to REST API v2 with TLS verification off.
 | Projects for the selector | `GET /secure/project/BrowseProjects.jspa?s=view_projects&os_authType=basic` → `WRM._unparsedData["com.atlassian.jira.project.browse:projects"]` (a JSON string inside a JS string literal); fallback `GET /rest/api/2/project` |
 | Issue cache | `POST /rest/api/2/search` – `project = "X" AND (statusCategory != Done OR resolved >= -90d)`, paged by 100 |
 | Assigned issues | `POST /rest/api/2/search` – `assignee = currentUser() AND statusCategory != Done` |
-| Issues with my worklogs in a month | `POST /rest/api/2/search` – `worklogAuthor = currentUser() AND worklogDate >= "<first-1d>" AND worklogDate <= "<last+1d>"` |
-| Worklogs of those issues | `GET /rest/api/2/issue/{key}/worklog` (paged; 8 parallel threads), filtered to the current user's worklogs that fall in the month on the Budapest wall-clock date |
+| Issues with my worklogs in a month | `POST /rest/api/2/search` – `worklogAuthor = currentUser() AND worklogDate >= "<first-1d>" AND worklogDate <= "<last+1d>"`, with the estimate fields `timeoriginalestimate,timeestimate` |
+| Worklogs of those issues | `GET /rest/api/2/issue/{key}/worklog` (paged; 8 parallel threads), filtered to the current user's worklogs that fall in the month on the Budapest wall-clock date. As every worklog of the issue is read, the user's all-time total and everyone else's time (`IssueTime`) come without extra calls. |
+| Time on other issues (picked in the dialog, Outlook / copied drafts) | `GET /rest/api/2/issue/{key}?fields=timeoriginalestimate,timeestimate` + `GET /rest/api/2/issue/{key}/worklog`, read on demand and kept for the session; after an upload the touched issues are read again |
 | New entry | `POST /rest/api/2/issue/{key}/worklog?adjustEstimate=auto` – `{started, timeSpentSeconds, comment}` |
 | Modified entry | `PUT /rest/api/2/issue/{key}/worklog/{id}?adjustEstimate=auto` – an in-place update, **no delete + re-create needed** |
 | Deleted entry | `DELETE /rest/api/2/issue/{key}/worklog/{id}?adjustEstimate=auto` |

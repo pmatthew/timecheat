@@ -4,7 +4,7 @@ from datetime import date, datetime
 from timecheat.cache import IssueCache
 from timecheat.demo import LOCKED_ISSUE, FakeJira
 from timecheat.jira_client import format_started, parse_started
-from timecheat.model import Issue, Timesheet
+from timecheat.model import Issue, Timesheet, Worklog
 from timecheat.upload import PlanRunner, build_plan
 from timecheat.workdays import WorkCalendar
 
@@ -46,7 +46,7 @@ def test_issue_cache_round_trip(tmp_path):
 
 def test_upload_plan_against_fake_jira():
     jira = FakeJira(today=date(2026, 10, 28), latency=0)
-    worklogs, _ = jira.my_worklogs(*OCTOBER)
+    worklogs, _, _ = jira.my_worklogs(*OCTOBER)
     ts = Timesheet(worklogs)
     first, second, third = sorted(worklogs, key=lambda w: w.start)[:3]
 
@@ -65,7 +65,7 @@ def test_upload_plan_against_fake_jira():
     assert len(failed) == 1 and LOCKED_ISSUE in failed[0].error
     assert [c.after.issue_key for c in ts.changes()] == [LOCKED_ISSUE]
 
-    fresh, _ = jira.my_worklogs(*OCTOBER)
+    fresh, _, _ = jira.my_worklogs(*OCTOBER)
     ts.merge_remote(*OCTOBER, fresh)
     assert {w.uid for w in fresh} | {c.uid for c in ts.changes()} == set(ts.current)
     assert any(w.issue_key == "ACME-3" and w.start == second.start for w in fresh)
@@ -74,7 +74,7 @@ def test_upload_plan_against_fake_jira():
 
 def test_failed_move_create_skips_delete():
     jira = FakeJira(today=date(2026, 10, 28), latency=0)
-    worklogs, _ = jira.my_worklogs(*OCTOBER)
+    worklogs, _, _ = jira.my_worklogs(*OCTOBER)
     ts = Timesheet(worklogs)
     target = worklogs[0]
     ts.put(replace(target, issue_key=LOCKED_ISSUE))
@@ -82,5 +82,19 @@ def test_failed_move_create_skips_delete():
     results = [runner.run(o) for o in build_plan(ts.changes())]
     assert [r.ok for r in results] == [False, False]
     assert "skipped" in results[1].error
-    fresh, _ = jira.my_worklogs(*OCTOBER)
+    fresh, _, _ = jira.my_worklogs(*OCTOBER)
     assert target.worklog_id in {w.worklog_id for w in fresh}
+
+
+def test_fake_jira_reports_time_per_issue():
+    jira = FakeJira(today=date(2026, 10, 28), latency=0)
+    worklogs, _, times = jira.my_worklogs(*OCTOBER)
+    key = worklogs[0].issue_key
+    before = times[key]
+    assert before.mine >= sum(w.seconds for w in worklogs if w.issue_key == key)
+    assert any(t.original for t in times.values()) and any(t.original is None for t in times.values())
+    jira.create_worklog(Worklog("draft-x", key, datetime(2026, 10, 30, 9), 3600))
+    after = jira.issue_times([key, "NOPE-1"])
+    assert list(after) == [key] and after[key].mine == before.mine + 3600
+    if before.remaining:
+        assert after[key].remaining == max(0, before.remaining - 3600)

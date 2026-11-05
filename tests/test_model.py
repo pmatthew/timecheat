@@ -1,6 +1,7 @@
 from datetime import date, datetime, timedelta
 
 from timecheat.model import (
+    IssueTime,
     Timesheet,
     Worklog,
     day_status,
@@ -153,3 +154,46 @@ def test_formatting():
     assert format_duration(5400) == "1h 30m"
     assert format_duration(3600) == "1h"
     assert format_duration(900) == "15m"
+
+
+# --------------------------------------------------------------------------- #
+# time per issue
+# --------------------------------------------------------------------------- #
+
+
+def test_pending_by_issue_counts_creates_updates_moves_and_deletes():
+    kept = wl("1", "A-1", "2026-10-28T09:00", 60)
+    longer = wl("2", "A-1", "2026-10-28T10:00", 60)
+    moved = wl("3", "A-1", "2026-10-28T11:00", 30)
+    deleted = wl("4", "B-1", "2026-10-28T12:00", 45)
+    sheet = Timesheet([kept, longer, moved, deleted])
+    assert sheet.pending_by_issue() == {}
+    sheet.put(Worklog(longer.uid, "A-1", longer.start, 90 * 60, "", "2"))
+    sheet.put(Worklog(moved.uid, "B-1", moved.start, 30 * 60, "", "3"))
+    sheet.remove(deleted.uid)
+    sheet.add_draft("C-1", datetime(2026, 10, 29, 9), 15 * 60)
+    sheet.add_draft("", datetime(2026, 10, 29, 10), 60 * 60)  # unassigned meeting draft: no issue to count
+    assert sheet.pending_by_issue() == {"A-1": 30 * 60 - 30 * 60, "B-1": 30 * 60 - 45 * 60, "C-1": 15 * 60}
+
+
+def test_pending_by_issue_with_an_entry_still_in_the_dialog():
+    existing = wl("1", "A-1", "2026-10-28T09:00", 60)
+    sheet = Timesheet([existing])
+    editing = Worklog(existing.uid, "B-1", existing.start, 120 * 60, "", "1")
+    assert sheet.pending_by_issue(editing) == {"A-1": -3600, "B-1": 7200}
+    new = Worklog("draft-in-dialog", "A-1", existing.start, 1800)
+    assert sheet.pending_by_issue(new) == {"A-1": 1800}
+    assert sheet.pending_by_issue() == {}  # the timesheet itself is not changed
+
+
+def test_time_summary_with_pending_changes():
+    time = IssueTime(mine=10 * 3600, others=4 * 3600, original=16 * 3600, remaining=2 * 3600)
+    summary = time.with_pending(3 * 3600)
+    assert (summary.in_jira, summary.mine, summary.everyone) == (10 * 3600, 13 * 3600, 17 * 3600)
+    assert summary.over == 3600 and summary.used_percent == 106
+    assert (summary.remaining, summary.remaining_after) == (2 * 3600, 0)
+    less = time.with_pending(-11 * 3600)
+    assert less.mine == 0 and less.over == 0 and less.remaining_after == 13 * 3600
+    unestimated = IssueTime(mine=3600).with_pending(0)
+    assert unestimated.estimate is None and unestimated.over == 0 and unestimated.used_percent is None
+    assert unestimated.remaining_after is None

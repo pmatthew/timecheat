@@ -16,7 +16,7 @@ import time
 from datetime import date, datetime, timedelta
 
 from .jira_client import ChildIssue, JiraError, ProgressCallback, Project, User
-from .model import Issue, Worklog, remote_uid
+from .model import Issue, IssueTime, Worklog, remote_uid
 from .outlook import EXCHANGE_GOID_PREFIX, GraphAuthError, series_id
 
 LATENCY = 0.25
@@ -63,6 +63,26 @@ class FakeJira:
         self._next_issue = itertools.count(60)
         self._worklogs: dict[str, Worklog] = {}
         self._seed((today or date.today()), rng)
+        self._estimates, self._others = self._seed_estimates(random.Random(7))
+
+    def _seed_estimates(self, rng: random.Random) -> tuple[dict[str, int], dict[str, int]]:
+        """Original estimates for about two thirds of the issues, and time booked by colleagues."""
+        estimates: dict[str, int] = {}
+        others: dict[str, int] = {}
+        for key in sorted(self._issues):
+            if rng.random() < 0.65:
+                estimates[key] = rng.choice([4, 8, 16, 24, 40, 80]) * 3600
+            if rng.random() < 0.5:
+                others[key] = rng.choice([1, 2, 4, 6, 12]) * 3600
+        return estimates, others
+
+    def _time(self, key: str) -> IssueTime:
+        mine = sum(w.seconds for w in self._worklogs.values() if w.issue_key == key)
+        others = self._others.get(key, 0)
+        original = self._estimates.get(key)
+        # Like adjustEstimate=auto: logging work reduces the remaining estimate, not below zero.
+        remaining = None if original is None else max(0, original - mine - others)
+        return IssueTime(mine, others, original, remaining)
 
     def _seed(self, today: date, rng: random.Random) -> None:
         first = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
@@ -105,15 +125,21 @@ class FakeJira:
 
     def my_worklogs(
         self, first: date, last: date, progress: ProgressCallback | None = None
-    ) -> tuple[list[Worklog], list[Issue]]:
+    ) -> tuple[list[Worklog], list[Issue], dict[str, IssueTime]]:
         with self._lock:
             worklogs = [w for w in self._worklogs.values() if first <= w.day <= last]
-        keys = sorted({w.issue_key for w in worklogs})
+            keys = sorted({w.issue_key for w in worklogs})
+            times = {k: self._time(k) for k in keys}
         for n in range(len(keys) + 1):
             if progress:
                 progress(n, len(keys))
             time.sleep(self.latency / 4)
-        return worklogs, [self._issues[k] for k in keys]
+        return worklogs, [self._issues[k] for k in keys], times
+
+    def issue_times(self, keys: list[str]) -> dict[str, IssueTime]:
+        self._sleep()
+        with self._lock:
+            return {k: self._time(k) for k in keys if k in self._issues}
 
     def create_worklog(self, worklog: Worklog) -> Worklog:
         self._sleep()

@@ -21,10 +21,11 @@ from zoneinfo import ZoneInfo
 import requests
 import urllib3
 
-from .model import Issue, Worklog, remote_uid
+from .model import Issue, IssueTime, Worklog, remote_uid
 
 BUDAPEST = ZoneInfo("Europe/Budapest")
 ISSUE_FIELDS = "summary,issuetype,status,project"
+ESTIMATE_FIELDS = "timeoriginalestimate,timeestimate"
 ADJUST_ESTIMATE = "auto"
 PAGE_SIZE = 100
 WORKLOG_FETCH_THREADS = 8
@@ -83,7 +84,9 @@ class JiraBackend(Protocol):
 
     def my_worklogs(
         self, first: date, last: date, progress: ProgressCallback | None = None
-    ) -> tuple[list[Worklog], list[Issue]]: ...
+    ) -> tuple[list[Worklog], list[Issue], dict[str, IssueTime]]: ...
+
+    def issue_times(self, keys: list[str]) -> dict[str, IssueTime]: ...
 
     def create_worklog(self, worklog: Worklog) -> Worklog: ...
 
@@ -135,6 +138,22 @@ def worklog_from_json(issue_key: str, data: dict[str, Any]) -> Worklog:
         comment=data.get("comment") or "",
         worklog_id=worklog_id,
     )
+
+
+def issue_time(fields: dict[str, Any], worklogs: list[dict[str, Any]], user: User) -> IssueTime:
+    """``fields`` holds the estimate fields of the issue, ``worklogs`` all of its worklogs."""
+    mine = others = 0
+    for worklog in worklogs:
+        seconds = int(worklog.get("timeSpentSeconds") or 0)
+        if user.owns(worklog.get("author") or {}):
+            mine += seconds
+        else:
+            others += seconds
+    return IssueTime(mine, others, _seconds(fields.get("timeoriginalestimate")), _seconds(fields.get("timeestimate")))
+
+
+def _seconds(value: Any) -> int | None:
+    return int(value) if isinstance(value, (int, float)) else None
 
 
 def worklog_body(worklog: Worklog) -> dict[str, Any]:
@@ -300,33 +319,53 @@ class JiraClient:
 
     def my_worklogs(
         self, first: date, last: date, progress: ProgressCallback | None = None
-    ) -> tuple[list[Worklog], list[Issue]]:
+    ) -> tuple[list[Worklog], list[Issue], dict[str, IssueTime]]:
+        """The user's worklogs in ``first..last``, their issues, and the time on those issues.
+
+        Every worklog of each issue is read anyway (Jira cannot filter them by author), so the
+        user's all-time total and everyone else's come for free.
+        """
         # worklogDate is evaluated in the user's Jira time zone; widen by a day each
         # side and filter precisely on the Budapest wall-clock date below.
         jql = (
             "worklogAuthor = currentUser() "
             f'AND worklogDate >= "{first - timedelta(days=1)}" AND worklogDate <= "{last + timedelta(days=1)}"'
         )
-        issues = [issue_from_json(i) for i in self.search(jql)]
+        found = list(self.search(jql, fields=f"{ISSUE_FIELDS},{ESTIMATE_FIELDS}"))
+        issues = [issue_from_json(i) for i in found]
+        estimates = {i["key"]: i.get("fields") or {} for i in found}
         done = 0
         if progress:
             progress(0, len(issues))
 
-        def fetch(issue: Issue) -> list[Worklog]:
-            return [
-                worklog_from_json(issue.key, w)
-                for w in self._issue_worklogs(issue.key)
-                if self.user.owns(w.get("author") or {})
-            ]
+        def fetch(issue: Issue) -> tuple[list[Worklog], IssueTime]:
+            raw = self._issue_worklogs(issue.key)
+            mine = [worklog_from_json(issue.key, w) for w in raw if self.user.owns(w.get("author") or {})]
+            return mine, issue_time(estimates[issue.key], raw, self.user)
 
         worklogs: list[Worklog] = []
+        times: dict[str, IssueTime] = {}
         with ThreadPoolExecutor(max_workers=WORKLOG_FETCH_THREADS) as pool:
-            for batch in pool.map(fetch, issues):
+            for issue, (batch, time_on_issue) in zip(issues, pool.map(fetch, issues)):
                 worklogs.extend(w for w in batch if first <= w.day <= last)
+                times[issue.key] = time_on_issue
                 done += 1
                 if progress:
                     progress(done, len(issues))
-        return worklogs, issues
+        return worklogs, issues, times
+
+    def issue_times(self, keys: list[str]) -> dict[str, IssueTime]:
+        """Time on the given issues; issues that cannot be read are left out."""
+
+        def fetch(key: str) -> tuple[str, IssueTime | None]:
+            try:
+                fields = self._request("GET", f"issue/{key}", params={"fields": ESTIMATE_FIELDS}).get("fields") or {}
+                return key, issue_time(fields, self._issue_worklogs(key), self.user)
+            except JiraError:
+                return key, None
+
+        with ThreadPoolExecutor(max_workers=WORKLOG_FETCH_THREADS) as pool:
+            return {key: found for key, found in pool.map(fetch, keys) if found is not None}
 
     # -- writing ------------------------------------------------------------ #
 

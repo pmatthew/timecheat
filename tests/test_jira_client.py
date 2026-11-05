@@ -7,7 +7,7 @@ import pytest
 import requests
 
 from timecheat.jira_client import JiraClient, JiraError
-from timecheat.model import Worklog
+from timecheat.model import IssueTime, Worklog
 
 
 class FakeResponse:
@@ -35,7 +35,9 @@ def calls(monkeypatch):
     routes = {
         ("GET", "myself"): {"name": "me", "key": "me", "displayName": "Me"},
         ("POST", "search"): {"total": 1, "issues": [{"key": "ACME-1", "fields": {
-            "summary": "S", "issuetype": {"name": "Story"}, "status": {"name": "Open"}, "project": {"key": "ACME"}}}]},
+            "summary": "S", "issuetype": {"name": "Story"}, "status": {"name": "Open"}, "project": {"key": "ACME"},
+            "timeoriginalestimate": 7200, "timeestimate": 1800}}]},
+        ("GET", "issue/ACME-1"): {"key": "ACME-1", "fields": {"timeoriginalestimate": None, "timeestimate": 600}},
         ("GET", "issue/ACME-1/worklog"): {"total": 2, "worklogs": [worklog, other]},
         ("POST", "issue/ACME-1/worklog"): dict(worklog, id="600"),
         ("PUT", "issue/ACME-1/worklog/501"): worklog,
@@ -58,12 +60,24 @@ def test_token_auth_and_my_worklogs(calls):
     client = JiraClient("https://jira.example/", token="secret")
     assert client.session.headers["Authorization"] == "Bearer secret"
     assert client.session.verify is False
-    worklogs, issues = client.my_worklogs(date(2026, 10, 1), date(2026, 10, 31))
+    worklogs, issues, times = client.my_worklogs(date(2026, 10, 1), date(2026, 10, 31))
     assert [w.worklog_id for w in worklogs] == ["501"]
+    # All worklogs of the issue are read: the user's own and everyone else's time, plus the estimates.
+    assert times == {"ACME-1": IssueTime(mine=3600, others=3600, original=7200, remaining=1800)}
+    fields = next(kw["json"]["fields"] for m, p, kw in calls if p == "search")
+    assert "timeoriginalestimate" in fields and "timeestimate" in fields
     assert worklogs[0].start == datetime(2026, 10, 28, 9)
     assert issues[0].issue_type == "Story"
     jql = next(kw["json"]["jql"] for m, p, kw in calls if p == "search")
     assert 'worklogDate >= "2026-09-30"' in jql and "worklogAuthor = currentUser()" in jql
+
+
+def test_issue_times_reads_estimates_and_skips_unreadable_issues(calls):
+    client = JiraClient("https://jira.example/", token="t")
+    times = client.issue_times(["ACME-1", "XX-9"])
+    assert times == {"ACME-1": IssueTime(mine=3600, others=3600, original=None, remaining=600)}
+    assert next(kw["params"] for m, p, kw in calls if p == "issue/ACME-1") == {
+        "fields": "timeoriginalestimate,timeestimate"}
 
 
 def test_write_operations_use_adjust_estimate(calls):

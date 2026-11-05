@@ -7,6 +7,7 @@ not an app restart.
 
 from __future__ import annotations
 
+import asyncio
 import calendar
 import hashlib
 import html
@@ -15,7 +16,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from nicegui import app, run, ui
+from nicegui import app, background_tasks, run, ui
 from nicegui.events import GenericEventArguments
 
 from . import settings as cfg
@@ -27,8 +28,10 @@ from .model import (
     MATCH_JIRA,
     MATCH_SESSION,
     Issue,
+    IssueTime,
     MeetingRef,
     Placed,
+    TimeSummary,
     Timesheet,
     Worklog,
     day_status,
@@ -99,6 +102,20 @@ body { background: #f7f8fa; }
 .tc-unassigned .fc-event-main { color: #9a3412 !important; }
 .tc-meeting-note { font-size: .7rem; color: #4b5563; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tc-help li { margin-bottom: 4px; }
+.tc-time { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 12px; font-size: .85rem;
+           color: #1f2933; }
+.tc-time-pending { color: #b45309; font-weight: 500; }
+.tc-time-muted { color: #6b7280; }
+.tc-bar { position: relative; display: flex; height: 10px; border-radius: 5px; background: #e5e7eb; overflow: hidden;
+          margin: 7px 0 5px; }
+.tc-bar-mine { background: #2563eb; }
+.tc-bar-pending { background: repeating-linear-gradient(45deg, #60a5fa 0 4px, #bfdbfe 4px 8px); }
+.tc-bar-others { background: #94a3b8; }
+.tc-bar-over { position: absolute; top: 0; bottom: 0; right: 0; background: rgba(220, 38, 38, .45);
+               border-left: 2px solid #dc2626; }
+.tc-time-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .78rem; color: #4b5563; }
+.tc-dot { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; }
+.tc-over-text { color: #dc2626; font-weight: 600; }
 """
 
 
@@ -129,6 +146,8 @@ class AppState:
     graph_expires: datetime | None = None
     graph_warned: bool = False
     outlook_months: dict[tuple[int, int], tuple[list[Meeting], list[SkippedEvent]]] = field(default_factory=dict)
+    # Time booked on issues (own all-time total, others, estimates) as last read from Jira.
+    issue_times: dict[str, IssueTime] = field(default_factory=dict)
     # The meeting story (Settings) of the selected project and series ID -> issue key from its sub-tasks.
     meeting_context_project: str | None = None
     meeting_context_story: str = ""
@@ -208,6 +227,77 @@ def local_iso(moment: datetime) -> str:
 
 def issue_color(key: str) -> str:
     return PALETTE[int(hashlib.md5(key.encode()).hexdigest(), 16) % len(PALETTE)]
+
+
+def signed_duration(seconds: int) -> str:
+    return f"{'+' if seconds >= 0 else '−'}{format_duration(abs(seconds))}"
+
+
+def remaining_text(summary: TimeSummary) -> str:
+    assert summary.remaining is not None
+    text = format_duration(summary.remaining)
+    if summary.pending and summary.remaining_after != summary.remaining and summary.remaining_after is not None:
+        text += f" (≈ {format_duration(summary.remaining_after)} after upload)"
+    return text
+
+
+def time_tooltip(key: str, summary: TimeSummary) -> list[str]:
+    mine = f"⏱ Your time on {key}: {format_duration(summary.mine)}"
+    if summary.pending:
+        mine += f" ({signed_duration(summary.pending)} not uploaded)"
+    everyone = f"📊 Everyone: {format_duration(summary.everyone)}"
+    if summary.estimate:
+        everyone += f" of {format_duration(summary.estimate)} estimate ({summary.used_percent}%)"
+        if summary.over:
+            everyone += f", {format_duration(summary.over)} over"
+    else:
+        everyone += " · no estimate"
+    if summary.remaining is not None:
+        everyone += f" · remaining {remaining_text(summary)}"
+    return [mine, everyone]
+
+
+def time_panel_html(key: str, summary: TimeSummary) -> str:
+    """The time box of the worklog dialog: own total, and a bar against the estimate if there is one."""
+
+    def item(color: str, text: str) -> str:
+        return f'<span><span class="tc-dot" style="background:{color}"></span>{text}</span>'
+
+    in_jira = min(summary.in_jira, summary.mine)
+    added = max(0, summary.mine - summary.in_jira)
+    head = f"<div><b>Your time on {html.escape(key)}:</b> {format_duration(summary.mine)}"
+    if summary.pending:
+        head += f' <span class="tc-time-pending">({signed_duration(summary.pending)} not uploaded)</span>'
+    head += "</div>"
+    legend = [item("#2563eb", f"You in Jira {format_duration(in_jira)}")]
+    if added:
+        legend.append(item("#93c5fd", f"Not uploaded {format_duration(added)}"))
+    if summary.others:
+        legend.append(item("#94a3b8", f"Others {format_duration(summary.others)}"))
+    bar = ""
+    if summary.estimate:
+        scale = max(summary.estimate, summary.everyone)
+
+        def width(seconds: int) -> str:
+            return f"{100 * seconds / scale:.2f}%"
+
+        bar = (
+            '<div class="tc-bar">'
+            f'<span class="tc-bar-mine" style="width:{width(in_jira)}"></span>'
+            f'<span class="tc-bar-pending" style="width:{width(added)}"></span>'
+            f'<span class="tc-bar-others" style="width:{width(summary.others)}"></span>'
+            + (f'<span class="tc-bar-over" style="width:{width(summary.over)}"></span>' if summary.over else "")
+            + "</div>"
+        )
+        estimate = f"<b>Estimate {format_duration(summary.estimate)}</b> · {summary.used_percent}% used"
+        if summary.over:
+            estimate += f' · <span class="tc-over-text">{format_duration(summary.over)} over</span>'
+        legend.append(f"<span>{estimate}</span>")
+    else:
+        legend.append('<span class="tc-time-muted">No estimate</span>')
+    if summary.remaining is not None:
+        legend.append(f"<span>Remaining {remaining_text(summary)}</span>")
+    return f'<div class="tc-time">{head}{bar}<div class="tc-time-legend">{"".join(legend)}</div></div>'
 
 
 def is_subtask_type(issue_type: str) -> bool:
@@ -364,6 +454,9 @@ class MainPage:
     def __init__(self, state: AppState) -> None:
         self.s = state
         self._quiet = False
+        # Issue time requests in flight, and issues whose time could not be read (not asked again).
+        self._time_requests: set[str] = set()
+        self._time_failed: set[str] = set()
         ui.query(".nicegui-content").classes("p-0 gap-0")
         self.root = ui.column().classes("w-full h-screen no-wrap gap-0 p-0")
         with self.root:
@@ -625,12 +718,14 @@ class MainPage:
         first, last = month_bounds(year, month)
         try:
             async with Busy(self.root, f"Loading your worklogs for {calendar.month_name[month]} {year} …") as busy:
-                worklogs, issues = await run.io_bound(s.backend.my_worklogs, first, last, busy.progress)
+                worklogs, issues, times = await run.io_bound(s.backend.my_worklogs, first, last, busy.progress)
         except Exception as error:  # noqa: BLE001
             notify_error(error)
             return False
         for issue in issues:
             s.issues[issue.key] = issue
+        s.issue_times.update(times)
+        self._time_failed.clear()
         s.timesheet.merge_remote(first, last, worklogs)
         s.loaded_months.add((year, month))
         return True
@@ -660,6 +755,7 @@ class MainPage:
         s = self.s
         first, last = month_bounds(*s.month)
         today = date.today()
+        pending_seconds = s.timesheet.pending_by_issue()
         month_events: list[dict[str, Any]] = []
         day_info: dict[str, dict[str, str]] = {}
         day = first
@@ -673,12 +769,12 @@ class MainPage:
                 "label": status.label if status.target_seconds or logged else "",
                 "note": html.escape(s.work_calendar.holiday_name(day) or ""),
             }
-            month_events.extend(self._event(p, compact=True) for p in placed)
+            month_events.extend(self._event(p, compact=True, pending_seconds=pending_seconds) for p in placed)
             day += timedelta(days=1)
         self.month_cal.set_data(month_events, day_info)
 
         placed = layout_day(s.timesheet.on_day(s.day))
-        self.day_cal.set_data([self._event(p, compact=False) for p in placed])
+        self.day_cal.set_data([self._event(p, compact=False, pending_seconds=pending_seconds) for p in placed])
         logged = sum(p.worklog.seconds for p in placed)
         status = day_status(s.day, logged, s.work_calendar.target_seconds(s.day), today)
         self.day_label.text = f"{s.day:%a, %d %b %Y}"
@@ -691,13 +787,47 @@ class MainPage:
         self.pending_badge.visible = pending > 0
         self.upload_button.enabled = pending > 0
 
+        shown = {w.issue_key for w in s.timesheet.between(first, last) if w.is_assigned}
+        missing = shown - s.issue_times.keys() - self._time_requests - self._time_failed
+        if missing:
+            background_tasks.create(self._load_issue_times_and_refresh(missing), name="issue times")
+
+    # -- time per issue --------------------------------------------------------- #
+
+    async def _ensure_issue_times(self, keys: set[str]) -> None:
+        """Reads the time on ``keys`` from Jira unless it is known (or failed before); waits for requests in flight."""
+        s = self.s
+        missing = sorted(keys - s.issue_times.keys() - self._time_requests - self._time_failed)
+        if missing and s.backend is not None:
+            self._time_requests.update(missing)
+            try:
+                found = await run.io_bound(s.backend.issue_times, missing)
+            except Exception:  # noqa: BLE001 - the time is extra information; the tooltip just leaves it out
+                found = {}
+            finally:
+                self._time_requests.difference_update(missing)
+            if found is not None:  # None: the app is shutting down
+                s.issue_times.update(found)
+                self._time_failed.update(set(missing) - found.keys())
+        while keys & self._time_requests:
+            await asyncio.sleep(0.1)
+
+    async def _load_issue_times_and_refresh(self, keys: set[str]) -> None:
+        await self._ensure_issue_times(keys)
+        with self.root:
+            self.refresh()
+
+    def time_summary(self, key: str, pending_seconds: dict[str, int]) -> TimeSummary | None:
+        known = self.s.issue_times.get(key)
+        return known.with_pending(pending_seconds.get(key, 0)) if known else None
+
     def entry_label(self, worklog: Worklog) -> str:
         if worklog.is_assigned:
             return self.issue(worklog.issue_key).label
         subject = worklog.meeting.subject if worklog.meeting else ""
         return f"⚠ no issue yet · Outlook: {subject}"
 
-    def _event(self, placed: Placed, compact: bool) -> dict[str, Any]:
+    def _event(self, placed: Placed, compact: bool, pending_seconds: dict[str, int] | None = None) -> dict[str, Any]:
         worklog = placed.worklog
         meeting = worklog.meeting
         issue = self.issue(worklog.issue_key)
@@ -710,6 +840,11 @@ class MainPage:
             self.entry_label(worklog),
             f"{worklog.start:%H:%M}–{worklog.end:%H:%M} ({duration})",
         ]
+        if pending_seconds is None:
+            pending_seconds = self.s.timesheet.pending_by_issue()
+        summary = self.time_summary(worklog.issue_key, pending_seconds) if assigned else None
+        if summary is not None:
+            tooltip.extend(time_tooltip(worklog.issue_key, summary))
         if meeting is not None:
             tooltip.append(f"Outlook meeting: {meeting.subject}" + (" (recurring)" if meeting.recurring else ""))
             if meeting.match == MATCH_JIRA and assigned:
@@ -884,6 +1019,7 @@ class MainPage:
                     "Only your assigned issues and this month's issues are searchable – select a Jira project "
                     "in the header to search all of its issues."
                 ).classes("text-xs text-orange-9 -mt-2")
+            time_box = ui.html("").classes("w-full")
             with ui.row().classes("items-start gap-3"):
                 start_input = ui.input("Start", value=hhmm(start_minutes)).props("mask='##:##'").classes("w-24")
                 end_input = ui.input("End", value=hhmm(start_minutes + minutes)).props("mask='##:##'").classes("w-24")
@@ -916,6 +1052,34 @@ class MainPage:
             start_input.on_value_change(lambda: sync("start"))
             minutes_input.on_value_change(lambda: sync("minutes"))
             end_input.on_value_change(lambda: sync("end"))
+
+            async def show_time() -> None:
+                key = issue_select.value
+                if not key:
+                    time_box.content = ""
+                    return
+                if key not in s.issue_times:
+                    time_box.content = (f'<div class="tc-time tc-time-muted">⏳ Reading the time on '
+                                        f'{html.escape(key)} from Jira …</div>')
+                    await self._ensure_issue_times({key})
+                    if issue_select.value != key:
+                        return
+                if key not in s.issue_times:
+                    time_box.content = ""
+                    return
+                begin = parse_hhmm(start_input.value)
+                moment = datetime.combine(day, datetime.min.time()) + timedelta(
+                    minutes=begin if begin is not None else start_minutes)
+                length = max(0, int(minutes_input.value or 0)) * 60
+                editing = (replace(worklog, issue_key=key, start=moment, seconds=length) if worklog is not None
+                           else Worklog("draft-in-dialog", key, moment, length))
+                pending_seconds = timesheet.pending_by_issue(editing).get(key, 0)
+                time_box.content = time_panel_html(key, s.issue_times[key].with_pending(pending_seconds))
+
+            issue_select.on_value_change(show_time)
+            minutes_input.on_value_change(show_time)
+            start_input.on_value_change(show_time)
+            ui.timer(0, show_time, once=True)
 
             def save() -> None:
                 begin = parse_hhmm(start_input.value)
@@ -1534,6 +1698,7 @@ class MainPage:
         if not plan:
             ui.notify("Nothing to upload.")
             return
+        touched = {w.issue_key for c in s.timesheet.changes() for w in (c.before, c.after) if w and w.is_assigned}
         rows = []
         for index, operation in enumerate(plan):
             worklog = operation.worklog
@@ -1610,6 +1775,9 @@ class MainPage:
                 )
                 status.classes(replace="text-positive" if not failed else "text-negative")
                 close.visible = True
+                # Jira's totals and remaining estimates changed: read them again.
+                for key in touched:
+                    s.issue_times.pop(key, None)
                 self.refresh()
 
             confirm.on_click(upload)
