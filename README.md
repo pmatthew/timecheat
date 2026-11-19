@@ -98,9 +98,17 @@ Overlapping worklogs are queued one after the other in the day view; their real 
 
 1. Set the **meeting story** in ⚙ Settings (e.g. *General meetings*) and select the Jira project that has it (needed for auto-matching and for creating sub-tasks), then open a day and click **Outlook** in the day header.
 2. The first time, TimeCheat asks for a Microsoft Graph token (click **?** for these steps):
-   1. Open [Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer) and sign in with your work account.
-   2. Run a calendar query once, e.g. `GET https://graph.microsoft.com/v1.0/me/calendarView?startDateTime=2026-10-01T00:00:00&endDateTime=2026-10-02T00:00:00`. If asked, consent to **Calendars.Read** under *Modify permissions*.
-   3. Open the **Access token** tab and copy the token, then paste it into TimeCheat.
+   1. Open [Graph Explorer](https://developer.microsoft.com/en-us/graph/graph-explorer) and sign in with your work account (top-right profile icon).
+   2. Grant the **Calendars.Read** permission *(only needed the very first time)*:
+      * Click your **profile icon** in the top-right corner and select **Consent to permissions**:
+
+        ![Open Consent to permissions from the profile menu](docs/calendars_read_consent_1.png)
+
+      * Type `calendars.read` into the filter box, find **Calendars.Read**, and click **Consent**:
+
+        ![Filter for calendars.read and click Consent](docs/calendars_read_consent_2.png)
+
+   3. Open the **Access token** tab (below the request bar), copy the token, and paste it into TimeCheat.
 3. The token is kept until it expires: it is saved on this computer (`~/.timecheat/graph_token.json`, readable only by you), so restarting TimeCheat does not ask for it again. The key chip next to the Outlook button shows the time left; click it to paste a new one. TimeCheat warns 5 minutes before expiry and asks again when the token no longer works.
 4. The month's meetings are loaded and the selected day's meetings are put into the free time:
    * Meetings that are only partly free are clipped.

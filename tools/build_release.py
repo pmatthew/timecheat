@@ -15,8 +15,16 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ["run.py", "requirements.txt", "README.md", "start.bat", "start.command",
-         "timecheat_defaults.example.json"]
+FILES = [
+    "run.py",
+    "requirements.txt",
+    "README.md",
+    "docs/calendars_read_consent_1.png",
+    "docs/calendars_read_consent_2.png",
+    "start.bat",
+    "start.command",
+    "timecheat_defaults.example.json",
+]
 PACKAGE = "timecheat"
 DEFAULTS = "timecheat_defaults.json"
 EXECUTABLE = {"start.command"}

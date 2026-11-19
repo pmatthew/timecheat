@@ -1252,9 +1252,9 @@ class MainPage:
                     "<ol style='padding-left:1.2em; list-style:decimal'>"
                     f"<li>Open <a href='{GRAPH_EXPLORER_URL}' target='_blank' rel='noopener' style='color:#1d4ed8'>"
                     "Graph Explorer</a> and sign in with your work account (top right).</li>"
-                    "<li>Run a calendar query once, e.g. <code>GET https://graph.microsoft.com/v1.0/me/calendarView"
-                    "?startDateTime=2026-10-01T00:00:00&amp;endDateTime=2026-10-02T00:00:00</code>. If it asks, "
-                    "consent to <b>Calendars.Read</b> under <i>Modify permissions</i>.</li>"
+                    "<li>The first time only: click your <b>profile icon</b> (top right) &rarr; "
+                    "<b>Consent to permissions</b>, filter for <code>calendars.read</code>, and click "
+                    "<b>Consent</b> next to <b>Calendars.Read</b>.</li>"
                     "<li>Open the <b>Access token</b> tab under the request box and click the copy icon.</li>"
                     "<li>Paste it below. When it expires, TimeCheat warns you and asks for a new one.</li>"
                     "</ol>",
